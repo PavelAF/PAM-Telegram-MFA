@@ -29,9 +29,7 @@ struct MemoryStruct {
 
 
 int telegramGetResponse(char* baseurl, int chatId, char** data);
-int telegramSend2faRequest(char* pBaseurl, int chatId);
-int telegramSend2faFinish(char* pBaseurl, int chatId);
-int telegramSend2faData(char* pBaseurl, int chatId, char* data);
+int telegramSend2fa(char* baseurl, int chatId);
 int curlSend(char* url, char* data, char* method, struct MemoryStruct* response_string);
 void logging(const char* logtype,const char* format, ...);
 
@@ -198,7 +196,7 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
     strcpy(pBaseurl, apiurl);
     strcat(pBaseurl, config_setting_get_string(setting));
 
-    if (telegramSend2faRequest(pBaseurl, chatId)) {    /* 2fa message send? */
+    if (telegramSend2fa(pBaseurl, chatId)) {    /* 2fa message send? */
         int i;
 
         converseInfo(pamh,"HAM message send... Please respond within %i seconds", timeout);
@@ -208,7 +206,6 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
 
             if (telegramGetResponse(pBaseurl,chatId,&response)) {
                 if (response != NULL) {
-                    telegramSend2faFinish(pBaseurl, chatId);
                     if (strcmp(response, "\"Approve\"") == 0) {
                         converseInfo(pamh,"HAM: OK");
                         free(response);
@@ -232,8 +229,7 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
         converseInfo(pamh,"HAM: host verification error");
         logging("Error","MFA: No response");
     } else {
-        converseInfo(pamh,"HAM: host verification error");
-        logging("Error","MFA: Error: Cannot send the 2fa message. Check the logs for details");
+        converseInfo(pamh,"MFA: Error: Cannot send the 2fa message. Check the logs for details");
     }
 
     free(pBaseurl);
@@ -338,25 +334,14 @@ int telegramGetResponse(char* pBaseurl, int chatId, char** data)
     return 0;
 }
 
-int telegramSend2faRequest(char* pBaseurl, int chatId)
-{
-    char data[] = "{\"text\":\"Approve sign-in?\", \"reply_markup\": {\"keyboard\": [[\"Approve\",\"Deny\"]],\"one_time_keyboard\":true, \"resize_keyboard\":true}}";
-    return telegramSend2faData(pBaseurl, chatId, (char*)data);
-}
-
-int telegramSend2faFinish(char* pBaseurl, int chatId)
-{
-    char data[] = "{\"reply_markup\": {\"remove_keyboard\": true}";
-    return telegramSend2faData(pBaseurl, chatId, (char*)data);
-}
-
-int telegramSend2faData(char* pBaseurl, int chatId, char* data)
+int telegramSend2fa(char* pBaseurl, int chatId)
 {
 
     struct MemoryStruct response;
 
     int retval;
     char method[] = "POST";
+    char data[] = "{\"text\":\"Approve sign-in?\", \"reply_markup\": {\"keyboard\": [[\"Approve\",\"Deny\"]],\"one_time_keyboard\":true, \"resize_keyboard\":true}}";
 
     response.memory = (char*)malloc(1);
     response.size = 0;
