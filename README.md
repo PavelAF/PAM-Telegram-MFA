@@ -3,9 +3,8 @@
 ## Build
 ```bash
 apt install gcc libconfig-dev libjson-c-dev libcurl4-openssl-dev
-gcc -fPIC -lcurl -lconfig -ljson-c -fno-stack-protector -c pam_telegram.c -o pam_telegram.o
-mkdir -p /lib/security
-sudo ld -lcurl -lconfig -ljson-c -x --shared -o /lib/security/pam_telegram.so pam_telegram.o
+gcc -fPIC -lcurl -lconfig -ljson-c -D_GNU_SOURCE=1 -fno-stack-protector -c pam_telegram.c -o pam_telegram.o \
+&& mkdir -p /lib/security && sudo ld -lcurl -lconfig -ljson-c -x --shared -o /lib/security/pam_telegram.so pam_telegram.o
 ```
 
 ## PAM
