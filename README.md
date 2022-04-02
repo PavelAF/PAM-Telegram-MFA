@@ -4,7 +4,7 @@ How does it work? When calling this library, a PUSH message is sent to the Teleg
 
 # In the plans
 1. At the moment, the user name is linked to user accounts on the server, it is planned to fix this in the future (the restriction rests on the syntax of the config file type libconfig.h)
-2. The function of prohibiting the response to an authentication request from Telegram bots (relevant for the group, will be configured in the config file)
+2. The function of prohibiting the response to an authentication request from Telegram bots/whitelist of users (relevant for the group, will be configured in the config file)
 3. Displaying the name/ID of the user who responded to the PUSH request in the message
 4. Solving optimization problems (long exit from the AUTH function after receiving a positive HTTP-GET and more)
 
