@@ -3,7 +3,7 @@ PAM Telegram MFA is a PAM library for additional PUSH authentication via Telegra
 How does it work? When calling this library, a PUSH message is sent to the Telegram chat/group, according to the configuration. Telegram user(s) can accept/reject the request. After that, the message about the login attempt and the result remains in the chat history
 
 # In the plans
-1. At the moment, the user name is linked to user accounts on the server, it is planned to fix this in the future
+1. At the moment, the user name is linked to user accounts on the server, it is planned to fix this in the future (the restriction rests on the syntax of the config file type libconfig.h)
 2. The function of prohibiting the response to an authentication request from Telegram bots (relevant for the group, will be configured in the config file)
 3. Displaying the name/ID of the user who responded to the PUSH request in the message
 
