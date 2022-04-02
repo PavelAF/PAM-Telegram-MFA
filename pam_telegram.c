@@ -37,7 +37,7 @@ struct MemoryStruct {
 
 int telegramGetResponseCallBack(char* pBaseurl, int chatId, int messageId, char** data);
 int telegramSend2faRequest(char* pBaseurl, int chatId, int *messageId, char* text);
-int telegramSend2faResult(char* pBaseurl, int chatId, int messageId);
+int telegramSend2faResult(char* pBaseurl, int chatId, int messageId, char* text);
 int telegramSendjData(char* pBaseurl, char* apimethod, json_object** jData);
 int curlSend(char* url, char* data, char* method, struct MemoryStruct* response_string);
 void logging(const char* logtype,const char* format, ...);
@@ -206,6 +206,12 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
         timeout = config_setting_get_int(setting);
     }
 
+    /* Get custom hostname for message display */
+    setting = config_setting_get_member(root, "hostname");
+    if (setting && strlen(config_setting_get_string(setting))) {
+        strcpy(hostname,config_setting_get_string(setting));
+    }
+
     /* Get force option from config file*/
     setting = config_setting_get_member(root, "force");
     if (!setting) {
@@ -241,7 +247,8 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
     strcpy(pBaseurl, apiurl);
     strcat(pBaseurl, config_setting_get_string(setting));
 
-    if(asprintf(&tg_req_text, "<b>%s</b>: attempt <b>AUTH\nService: %s\nUser: %s\n R-host: %s\nAllow authentication?</b>", hostname, pService, pUsername, pRHost) < 0) {
+    if(asprintf(&tg_req_text, "\xF0\x9F\x94\xA5<b>%s</b>: attempt <b>AUTH\nService: %s\nUser: %s\nR-host: %s\nAllow authentication?</b>", hostname, pService, pUsername, pRHost) < 0) {
+        free(pBaseurl);
         return PAM_SERVICE_ERR;
     }
     
@@ -251,7 +258,7 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
         int i;
         
         free(tg_req_text);
-        converseInfo(pamh,"HAM message send... Please respond within %i seconds", timeout);
+        converseInfo(pamh,"HAM send... waiting for a response");
         delay(1000);
         for (i=0; i<timeout; i++) {
 
@@ -261,19 +268,26 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
             
             if (telegramGetResponseCallBack(pBaseurl, chatId, messageId, &response)) {
                 if (response != NULL) {
-                    telegramSend2faResult(pBaseurl, chatId, messageId);
                     if (strcmp(response, "\"accept\"") == 0) {
+                        if(asprintf(&tg_req_text, "\xE2\x9C\x85 <b>%s</b>: auth <b>ACCEPT\nService: %s\nUser: %s\nR-host: %s</b>", hostname, pService, pUsername, pRHost) < 0) { return PAM_SERVICE_ERR; }
+                        telegramSend2faResult(pBaseurl, chatId, messageId, tg_req_text);
+                        free(tg_req_text);
+
+                        converseInfo(pamh,"HAM: OK");
+                        pam_syslog(pamh, LOG_NOTICE, "auth_telegram=[ SUCCESS ] for %s",pUsername);
                         free(response);
                         free(pBaseurl);
-                        converseInfo(pamh,"HAM: OK");
-                        pam_syslog(pamh, LOG_NOTICE, "auth_telegram=[SUCCESS] for %s",pUsername);
                         return PAM_SUCCESS;   /* Get an approve message from telegram > return 0 = OK */
                     } else if (strcmp(response, "\"deny\"") == 0) {
+                        if(asprintf(&tg_req_text, "\xF0\x9F\x9A\xA8<b>%s</b>: auth <b>REJECT\nService: %s\nUser: %s\nR-host: %s\n</b>", hostname, pService, pUsername, pRHost) < 0) { return PAM_SERVICE_ERR; }
+                        telegramSend2faResult(pBaseurl, chatId, messageId, tg_req_text);
+                        free(tg_req_text);
+
+                        converseInfo(pamh,"HAM: host verification error");
+                        logging("Alert","User denied");
+                        pam_syslog(pamh, LOG_WARNING, "auth_telegram=[ DENY ] for %s",pUsername);
                         free(response);
                         free(pBaseurl);
-                        converseInfo(pamh,"HAM: host verification error");
-                        pam_syslog(pamh, LOG_WARNING, "auth_telegram=[DENY] for %s",pUsername);
-                        logging("Alert","User denied");
                         return PAM_PERM_DENIED;
                     } 
                 }
@@ -281,13 +295,17 @@ int pam_sm_authenticate( pam_handle_t *pamh, int flags,int argc, const char **ar
                 free(response);
                 converseInfo(pamh,"HAM: host verification error");
                 logging("Error","Error while retrieving response");
+                free(response); free(pBaseurl);
                 break;
             }
         }
-        telegramSend2faResult(pBaseurl, chatId, messageId);
+        if(asprintf(&tg_req_text, "\xF0\x9F\x9A\xAB <b>%s</b>: auth <b>TIMEOUT\nService: %s\nUser: %s\nR-host: %s</b>", hostname, pService, pUsername, pRHost) < 0) { return PAM_SERVICE_ERR; }
+        telegramSend2faResult(pBaseurl, chatId, messageId, tg_req_text);
+        free(tg_req_text);
         converseInfo(pamh,"HAM: host verification error");
         logging("Error","MFA: No response");
         pam_syslog(pamh, LOG_ERR, "auth_telegram=[DENY-TIMEOUT] for %s",pUsername);
+        free(pBaseurl);
         return PAM_CRED_UNAVAIL;
     } else {
         free(tg_req_text);
@@ -335,7 +353,7 @@ int telegramGetResponseCallBack(char* pBaseurl, int chatId, int messageId, char*
 
         if (json_object_get_boolean(jResponseOk)) {
             
-            json_object *jResponseResult, *jResponseResults, *jResponseResultUpdateId, *jResponseResultCallBack, *jResponseResultMessage, *jResponseResultMessageId, *jResponseResultCData, *jResponseResultMessageDate, *jResponseResultMessageChat, *jResponseResultMessageChatId;
+            json_object *jResponseResults, *jResponseResultUpdateId, *jResponseResultCallBack, *jResponseResultMessage, *jResponseResultMessageId, *jResponseResultCData, *jResponseResultMessageDate, *jResponseResultMessageChat, *jResponseResultMessageChatId;
             int exists, i;
             
             /* Get result */
@@ -350,7 +368,7 @@ int telegramGetResponseCallBack(char* pBaseurl, int chatId, int messageId, char*
             
             for (i = json_object_array_length(jResponseResults)-1; i >= 0 ; i--) {
 
-                jResponseResult = json_object_array_get_idx( jResponseResults, i );
+                json_object *jResponseResult = json_object_array_get_idx( jResponseResults, i );
 
                 exists = json_object_object_get_ex( jResponseResult, "update_id", &jResponseResultUpdateId );
                 if (FALSE == exists) {
@@ -408,13 +426,11 @@ int telegramGetResponseCallBack(char* pBaseurl, int chatId, int messageId, char*
                 
                 /* Only messages not older then two seconds ago */
                 /*if ((time(NULL) - json_object_get_int(jResponseResultMessageDate)) < 2) {*/
-                if (json_object_get_int(jResponseResultMessageId) == messageId) {
-                    if (json_object_get_int(jResponseResultMessageChatId) == chatId) {
-                        *data = (char*)malloc( strlen( json_object_to_json_string(jResponseResultCData) ) + 1 );
-                        strcpy( *data, json_object_to_json_string(jResponseResultCData) );
-                        logging( "Debug", "Function: telegramGetResponse: result JSON: %s", *data );
-                        return 1;    /* No error. data is filled with the message */
-                    }
+                if (json_object_get_int(jResponseResultMessageId) == messageId && json_object_get_int(jResponseResultMessageChatId) == chatId) {
+                    *data = (char*)malloc( strlen( json_object_to_json_string(jResponseResultCData) ) + 1 );
+                    strcpy( *data, json_object_to_json_string(jResponseResultCData) );
+                    logging( "Debug", "Function: telegramGetResponse: result JSON: %s", *data );
+                    return 1;    /* No error. data is filled with the message */
                 }
             }
 
@@ -436,6 +452,7 @@ int telegramSend2faRequest(char* pBaseurl, int chatId, int *messageId, char* tex
             "{\"reply_markup\": { \"inline_keyboard\": [[ { \"text\": \"Accept\", \"callback_data\": \"accept\" },  { \"text\": \"Deny\", \"callback_data\": \"deny\" } ]] } }" );
     json_object_object_add( jData, "chat_id", json_object_new_int(chatId) );
     json_object_object_add( jData, "text", json_object_new_string(text) );
+    /*json_object_object_add( jData, "text", json_object_new_string("accept?") );*/
     json_object_object_add( jData, "parse_mode", json_object_new_string("HTML") );
     retval = telegramSendjData(pBaseurl, "/sendMessage", &jData);
     json_object_object_get_ex( jData, "result", &jData );
@@ -444,11 +461,13 @@ int telegramSend2faRequest(char* pBaseurl, int chatId, int *messageId, char* tex
     return retval;
 }
 
-int telegramSend2faResult(char* pBaseurl, int chatId, int messageId)
+int telegramSend2faResult(char* pBaseurl, int chatId, int messageId, char* text)
 {
-    json_object* jData = json_tokener_parse( "{\"text\":\"Response received\"}" );
+    json_object* jData = json_object_new_object();
     json_object_object_add( jData, "chat_id", json_object_new_int(chatId) );
     json_object_object_add( jData, "message_id", json_object_new_int(messageId) );
+    json_object_object_add( jData, "text", json_object_new_string(text) );
+    json_object_object_add( jData, "parse_mode", json_object_new_string("HTML") );
     return telegramSendjData(pBaseurl, "/editMessageText", &jData);
 }
 
@@ -523,6 +542,9 @@ int curlSend(char* url, char* pData, char* pMethod, struct MemoryStruct* pRespon
 
         /* always cleanup */ 
         curl_easy_cleanup(curl);
+    } else {
+        logging("Error","curl_easy_init() failed");
+        return 0;
     }
     
     curl_global_cleanup();
